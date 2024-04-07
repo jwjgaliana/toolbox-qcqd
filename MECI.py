@@ -221,7 +221,7 @@ def fchk2derivatives(filename,mw=True,freq=True):
                 gradient[i]=gradient[i]/(np.sqrt(atomic_masses[i]*CST.AMU_TO_ME))
         return(ETot,gradient,atomic_masses,NAtoms)
 
-def fchk2spectra(filename,normalized=False,stick_spectrum=False,fig=None,ax=None,units="rcm",secondary_axis=False,color=None,label=None,formatting=True):
+def fchk2spectra(filename,normalized=False,stick_spectrum=False,fig=None,ax=None,units="rcm",secondary_axis=False,color=None,label=None,formatting=True,spectrum_max=None,stick_max=None,shift_intensity=0):
     """
     Takes as input:
     - the fchk of a FC(HT) calculation from Gaussian
@@ -278,8 +278,21 @@ def fchk2spectra(filename,normalized=False,stick_spectrum=False,fig=None,ax=None
         spectrum_Energy=(1/np.copy(spectrum_Energy))*CST.RNM_TO_RCM
         sticks_Energy=(1/np.copy(sticks_Energy))*CST.RNM_TO_RCM
     if normalized:
-        spectrum_Intensity/=np.max(spectrum_Intensity)
-        sticks_Intensity/=np.max(sticks_Intensity)
+        # spectrum_Intensity/=np.max(spectrum_Intensity)
+        # sticks_Intensity/=np.max(sticks_Intensity)
+        if spectrum_max is None:
+            spectrum_max=np.max(spectrum_Intensity)
+        else:
+            spectrum_max=max(spectrum_max,np.max(spectrum_Intensity))
+        if stick_max is None:
+            stick_max=np.max(sticks_Intensity)
+        else:
+            stick_max=max(stick_max,np.max(sticks_Intensity))
+        spectrum_Intensity/=spectrum_max
+        sticks_Intensity/=stick_max
+        if shift_intensity!=0:
+            sticks_Intensity+=shift_intensity
+            spectrum_Intensity+=shift_intensity
     if fig is None:
         fig=plt.figure()
     if ax is None:
@@ -294,10 +307,12 @@ def fchk2spectra(filename,normalized=False,stick_spectrum=False,fig=None,ax=None
         if stick_spectrum:
             for _ in range(NSticks):
                 if color is None:
-                    ax.plot([sticks_Energy[_]]*2,[0,sticks_Intensity[_]],color="black")
+                    # ax.plot([sticks_Energy[_]]*2,[0,sticks_Intensity[_]],color="black")
+                    ax.plot([sticks_Energy[_]]*2,[shift_intensity,sticks_Intensity[_]],color="black")
                 else:
-                    ax.plot([sticks_Energy[_]]*2,[0,sticks_Intensity[_]],color=color,alpha=0.5)
-            ax.axhline(y=0,color="black",linewidth=0.45)
+                    # ax.plot([sticks_Energy[_]]*2,[0,sticks_Intensity[_]],color=color,alpha=0.5)
+                    ax.plot([sticks_Energy[_]]*2,[shift_intensity,sticks_Intensity[_]],color=color,alpha=0.5)
+            ax.axhline(y=shift_intensity,color="black",linewidth=0.45)
     if secondary_axis:
         ax2=ax.twinx()
         if color is None:
@@ -312,7 +327,7 @@ def fchk2spectra(filename,normalized=False,stick_spectrum=False,fig=None,ax=None
                     ax2.plot([sticks_Energy[_]]*2,[0,sticks_Intensity[_]],color="black")
                 else:
                     ax2.plot([sticks_Energy[_]]*2,[0,sticks_Intensity[_]],color=color,alpha=0.5)
-            ax2.axhline(y=0,color="black",linewidth=0.45)
+            ax2.axhline(y=shift_intensity,color="black",linewidth=0.45)
 
     if units=="rcm":
         if formatting:
@@ -329,13 +344,13 @@ def fchk2spectra(filename,normalized=False,stick_spectrum=False,fig=None,ax=None
             ax.set_ylabel("Normalized intensity")
         else:
             ax.set_ylabel("Intensity")
-        return fig,ax
+        return fig,ax,spectrum_max,stick_max
     if secondary_axis:
         if normalized:
             ax2.set_ylabel("Normalized intensity")
         else:
             ax2.set_ylabel("Intensity")
-        return fig,ax2
+        return fig,ax2,spectrum_max,stick_max
 
 def num_BS(filetagS1,filetagS2,mw=True):
     """
@@ -1390,6 +1405,17 @@ def reorderingNormalModes(initialNormalModes,finalNormalModes,check=True):
         plt.show()
     return(orderingInitialInFinal,orderedFinalNormalModes)
 
+def orthogonalizeNormalModes(printedModesCart,reducedMasses,atomicMasses,check=True):
+    normalModes=np.copy(printedModesCart)
+    for i in range(len(reducedMasses)):
+        for j in range(len(atomicMasses.flatten())):
+            normalModes[i,j]=printedModesCart[i,j]*(np.sqrt(atomicMasses.flatten()[j])/np.sqrt(reducedMasses[i]*CST.AMU_TO_ME))
+    if check:
+        fig,ax1=plotGramMatrix(printedModesCart,nrows=2,ncols=1,index=1)
+        fig,ax2=plotGramMatrix(normalModes,fig=fig,nrows=2,ncols=1,index=2)
+        plt.show()
+    return normalModes
+
 def fchk2coordinates(filename):
     with open(filename,"r") as f:
         lines=f.readlines()
@@ -1607,7 +1633,7 @@ def orthogonalizeNormalModes(printedModesCart,reducedMasses,atomicMasses,check=T
     return normalModes
 
 def visualizeDisplacement(initialCoordinates,displacement,atomicNumbers=0):
-    NCoords=len(initialCoordinates)
+    NCoords=len(initialCoordinates.flatten())
     NAtoms=int(NCoords/3)
     initialCoordinates=initialCoordinates.reshape(NAtoms,3)
     maxCoordinates=np.max(initialCoordinates)
@@ -1630,6 +1656,32 @@ def visualizeDisplacement(initialCoordinates,displacement,atomicNumbers=0):
     ax.set_zlim(-maxCoordinates,maxCoordinates)
     # plt.show()
     return fig
+
+def visualizeDisplacementNospec(initialCoordinates,displacement,atomicNumbers=0):
+    NCoords=len(initialCoordinates.flatten())
+    NAtoms=int(NCoords/3)
+    initialCoordinates=initialCoordinates.reshape(NAtoms,3)
+    maxCoordinates=np.max(initialCoordinates)
+    displacement=displacement.reshape(NAtoms,3)
+    fig=plt.figure()
+    ax=fig.add_subplot(111,projection="3d")
+    if type(atomicNumbers) is float:
+        ax.scatter(initialCoordinates[:,0],initialCoordinates[:,1],initialCoordinates[:,2])
+        ax.scatter(initialCoordinates[:,0]+displacement[:,0],initialCoordinates[:,1]+displacement[:,1],initialCoordinates[:,2]+displacement[:,2])
+    else:
+        atomicNumbers=atomicNumbers.astype(str)
+        atomicNumbersColors={"1":"grey","6":"black"}
+        atomicNumbersColorsDisp={"1":"blue","6":"red"}
+        for atomicNumber in set(atomicNumbers):
+            where=(atomicNumbers==atomicNumber)
+            ax.scatter(initialCoordinates[where,0],initialCoordinates[where,1],initialCoordinates[where,2],color=atomicNumbersColors[atomicNumber])
+            ax.scatter(initialCoordinates[where,0]+displacement[where,0],initialCoordinates[where,1]+displacement[where,1],initialCoordinates[where,2]+displacement[where,2],color=atomicNumbersColorsDisp[atomicNumber],alpha=0.3)
+    ax.set_xlim(-maxCoordinates,maxCoordinates)
+    ax.set_ylim(-maxCoordinates,maxCoordinates)
+    ax.set_zlim(-maxCoordinates,maxCoordinates)
+    # plt.show()
+    return fig,ax
+
 
 def visualizeNormalMode(initialCoordinates,normalMode,atomicNumbers=None,scale=1,projection="3d"):
     NAtoms=len(initialCoordinates.flatten())//3
@@ -1690,6 +1742,19 @@ def visualizeNormalMode(initialCoordinates,normalMode,atomicNumbers=None,scale=1
         ax.set_zlim(-1.1*maxCoordinates,1.1*maxCoordinates)
     return fig,ax
 
+def plotMatrix(matrix,fig=None,nrows=1,ncols=1,index=1,cmap="cividis"):
+    if fig is None:
+        fig=plt.figure()
+    ax=fig.add_subplot(nrows,ncols,index)
+    ap=ax.imshow(matrix,cmap="cividis")
+    divider = make_axes_locatable(ax)
+    colorbar_axes = divider.append_axes("right",
+                                        size="5%",
+                                        pad=0.1)
+    # Using new axes for colorbar
+    plt.colorbar(ap, cax=colorbar_axes)
+    return fig,ax
+
 def plotGramMatrix(vectors,fig=None,nrows=1,ncols=1,index=1):
     if fig is None:
         fig=plt.figure()
@@ -1703,18 +1768,164 @@ def plotGramMatrix(vectors,fig=None,nrows=1,ncols=1,index=1):
     plt.colorbar(ap, cax=colorbar_axes)
     return fig,ax
 
-def plotMatrix(matrix,fig=None,nrows=1,ncols=1,index=1):
-    if fig is None:
+def numericalBranchingSpace(filetag,rootA="A",rootB="B",roottag="AB",save="y",save_asNM="y",check=True,highest_negative=True):
+    with open(filetag+"_NBS.dat","w") as ResultsFile:
+        ResultsFile.write("Numerical Branching Space information for "+filetag+" calculations")
+        ResultsFile.write("\n")
+        ResultsFile.write("\n")
+
+    if roottag=="num":
+        filenameA=filetag+"_"+str(rootA)+".fchk"
+        filenameB=filetag+"_"+str(rootB)+".fchk"
+    elif roottag=="AB":
+        filenameA=filetag+"_A.fchk"
+        filenameB=filetag+"_B.fchk"
+    currentEnergySA,currentGradientSA,currentHessianSA=fchk2derivatives(filenameA,mw=True,freq=True)[:3]
+    currentEnergySB,currentGradientSB,currentHessianSB=fchk2derivatives(filenameB,mw=True,freq=True)[:3]
+    currentGradientSA=currentGradientSA.flatten() # Hartree / (Bohr·me^1/2)
+    currentGradientSB=currentGradientSB.flatten() # Hartree / (Bohr·me^1/2)
+
+    frequencies,reducedMasses,printedModesCart,atomicNumbers,atomicMasses,coordinates=fchk2vibrationalAnalysis(filenameA)
+    atomicMasses=atomicMasses=fchk2derivatives(filenameA)[3]
+    currentCoordinates=coordinates.flatten() # Angstrom
+    NAtoms=coordinates.size//3
+    NCoords=3*NAtoms
+    NModes=3*NAtoms-6
+
+    currentEnergyDifference=currentEnergySB-currentEnergySA
+    currentGradientDifference=currentGradientSB-currentGradientSA
+    currentGradientDifferenceNorm=np.sqrt(np.sum(currentGradientDifference**2))
+
+    currentHessianDifference=currentHessianSB-currentHessianSA
+    currentGradientDifferenceProjector=np.tensordot(0.5*currentGradientDifference,0.5*currentGradientDifference,axes=0)
+    currentSquaredHessianDifference=2*(0.5*currentEnergyDifference)*(0.5*currentHessianDifference)+2*currentGradientDifferenceProjector
+    eigval,diagonalizer=linalg.eigh(currentSquaredHessianDifference)
+    eigvec=diagonalizer.T
+    BSVLengths,BSVVectors=eigval[-2:][::-1],eigvec[-2:][::-1]
+
+    with open(filetag+"_NBS.dat","a+") as ResultsFile:
+        ResultsFile.write("Eigenvalues of the Hessian of the squared energy difference:")
+        ResultsFile.write("\n")
+        ResultsFile.write("\n")
+        for i in range(len(eigval)):
+            ResultsFile.write(str(i+1)+"\t"+str(eigval[i]))
+            ResultsFile.write("\n")
+        ResultsFile.write("\n")
+
+        ResultsFile.write("NAtoms, NCoords: {}, {}\n".format(NAtoms,NCoords))
+        ResultsFile.write("Branching-space vectors shape: \n".format(BSVVectors.shape))
+        ResultsFile.write("Associated Lengths: \n".format(BSVLengths))
+        ResultsFile.write("u1·u1 = {}\n".format(np.dot(BSVVectors[0],BSVVectors[0]))) # normalized
+        ResultsFile.write("u2·u2 = {}\n".format(np.dot(BSVVectors[1],BSVVectors[1]))) # normalized
+        ResultsFile.write("u1·u2 = {}\n".format(np.dot(BSVVectors[0],BSVVectors[1]))) # and orthogonal
+
+    currentHighestNegative=eigvec[0].flatten()
+    currentBranchingSpaceVector1=eigvec[-1].flatten()
+    currentBranchingSpaceVector2=eigvec[-2].flatten()
+
+    current_coordinates=currentCoordinates.reshape(NAtoms,3)
+    current_HighestNegative=currentHighestNegative.reshape(NAtoms,3) 
+    current_BranchingSpaceVector1=currentBranchingSpaceVector1.reshape(NAtoms,3) 
+    current_BranchingSpaceVector2=currentBranchingSpaceVector2.reshape(NAtoms,3) 
+
+    with open(filetag+"_NBS.dat","a+") as ResultsFile:
+        ResultsFile.write("Length (E_h^2/(a_0^2·m_e)) and components of the Unitary BS vector (as NM) associated to the highest non-zero eigenvalue:")
+        ResultsFile.write("\n")
+        ResultsFile.write("\n")
+        ResultsFile.write("\t"+str(eigval[-1]))
+        ResultsFile.write("\n")
+        ResultsFile.write("\n")
+        # ResultsFile.write("Num. Atom.\t x \t y \t z \t (in Hartree/(Angstrom * sqrt(me))")
+        ResultsFile.write("Num. Atom.\t x \t y \t z")
+        ResultsFile.write("\n")
+        for i in range(len(current_BranchingSpaceVector1)):
+            ResultsFile.write(str(i+1)+"\t\t"+str(current_BranchingSpaceVector1[i][0])+"\t\t"+str(current_BranchingSpaceVector1[i][1])+"\t\t"+str(current_BranchingSpaceVector1[i][2])+"\n")
+        ResultsFile.write("\n")
+        ResultsFile.write("Length (E_h^2/(a_0^2·m_e)) and components of the Unitary BS vector (as NM) associated to the lowest non-zero eigenvalue:")
+        ResultsFile.write("\n")
+        ResultsFile.write("\n")
+        ResultsFile.write("\t"+str(eigval[-2]))
+        ResultsFile.write("\n")
+        ResultsFile.write("\n")
+        # ResultsFile.write("Num. Atom.\t x \t y \t z \t (in Hartree/(Angstrom * sqrt(me))")
+        ResultsFile.write("Num. Atom.\t x \t y \t z")
+        ResultsFile.write("\n")
+        for i in range(len(current_BranchingSpaceVector2)):
+            ResultsFile.write(str(i+1)+"\t\t"+str(current_BranchingSpaceVector2[i][0])+"\t\t"+str(current_BranchingSpaceVector2[i][1])+"\t\t"+str(current_BranchingSpaceVector2[i][2])+"\n")
+
+
+    inverseSquareRootMasses=np.diag(1/np.sqrt(atomicMasses.flatten()*CST.AMU_TO_ME)) 
+    BSVVectorsCart=np.dot(inverseSquareRootMasses,BSVVectors.T) # vectors(mw coords) --> vectors(cart coords)
+    normalizationFactors=np.sqrt(1/np.sum(BSVVectorsCart**2,axis=0)) # sqrt(m_e)
+    BSVReducedMasses=1/np.sum(BSVVectorsCart**2,axis=0)/CST.AMU_TO_ME # m_e --> AMU
+    BSVVectorsCart=normalizationFactors*BSVVectorsCart # not normalized --> normalized 
+    BSVVectorsCart=BSVVectorsCart.T
+
+    with open(filetag+"_NBS.dat","a+") as ResultsFile:
+        ResultsFile.write("Normalization Factor (a.u.):\n {} \n".format(normalizationFactors))
+        ResultsFile.write("reducedMasses (AMU):\n {} \n".format(BSVReducedMasses))
+        ResultsFile.write("ucart1·ucart1 = {}\n".format(np.dot(BSVVectorsCart[0],BSVVectorsCart[0]))) # normalized
+        ResultsFile.write("ucart2·ucart2 = {}\n".format(np.dot(BSVVectorsCart[1],BSVVectorsCart[1]))) # normalized
+        ResultsFile.write("ucart1·ucart2 = {}\n".format(np.dot(BSVVectorsCart[0],BSVVectorsCart[1]))) # but not rigorously orthogonal
+
+
+    if check:
         fig=plt.figure()
-    ax=fig.add_subplot(nrows,ncols,index)
-    ap=ax.imshow(matrix)
-    divider = make_axes_locatable(ax)
-    colorbar_axes = divider.append_axes("right",
-                                        size="5%",
-                                        pad=0.1)
-    # Using new axes for colorbar
-    plt.colorbar(ap, cax=colorbar_axes)
-    return fig,ax
+        ax=fig.add_subplot(111,projection="3d")
+        ax.scatter(current_coordinates[:,0],current_coordinates[:,1],current_coordinates[:,2])
+        ax.scatter(current_coordinates[:,0]+current_BranchingSpaceVector1[:,0],current_coordinates[:,1]+current_BranchingSpaceVector1[:,1],current_coordinates[:,2]+current_BranchingSpaceVector1[:,2])
+        max_coordinates=np.max(np.abs(current_coordinates))
+        # ax.set_title("NBS 1 with ||NBS₁||="+str(eigval[-1]))
+        ax.set_xlim(-max_coordinates,max_coordinates)
+        ax.set_ylim(-max_coordinates,max_coordinates)
+        ax.set_zlim(-max_coordinates,max_coordinates)
+        if save=="y" or save=="yes":
+            plt.savefig(filetag+"_NBS1.png")
+            plt.savefig(filetag+"_NBS1.pdf")
+        plt.show()
+        fig=plt.figure()
+        ax=fig.add_subplot(111,projection="3d")
+        ax.scatter(current_coordinates[:,0],current_coordinates[:,1],current_coordinates[:,2])
+        ax.scatter(current_coordinates[:,0]+current_BranchingSpaceVector2[:,0],current_coordinates[:,1]+current_BranchingSpaceVector2[:,1],current_coordinates[:,2]+current_BranchingSpaceVector2[:,2])
+        # ax.set_title("NBS 2 with ||NBS₂||="+str(eigval[-2]))
+        ax.set_xlim(-max_coordinates,max_coordinates)
+        ax.set_ylim(-max_coordinates,max_coordinates)
+        ax.set_zlim(-max_coordinates,max_coordinates)
+        if save=="y" or save=="yes":
+            plt.savefig(filetag+"_NBS2.png")
+            plt.savefig(filetag+"_NBS2.pdf")
+        plt.show()
+    if highest_negative=="y" or highest_negative=="yes":
+        fig=plt.figure()
+        ax=fig.add_subplot(111,projection="3d")
+        ax.scatter(current_coordinates[:,0],current_coordinates[:,1],current_coordinates[:,2])
+        ax.scatter(current_coordinates[:,0]+current_HighestNegative[:,0],current_coordinates[:,1]+current_HighestNegative[:,1],current_coordinates[:,2]+current_HighestNegative[:,2])
+        # ax.set_title("eigvec 0 with eigval="+str(eigval[0]))
+        ax.set_xlim(-max_coordinates,max_coordinates)
+        ax.set_ylim(-max_coordinates,max_coordinates)
+        ax.set_zlim(-max_coordinates,max_coordinates)
+        plt.show()
+
+    # print("Save as NM:",save_asNM)
+    if save_asNM=="y" or save_asNM=="yes":
+        grid=False
+        modeSelection=[0,1]
+        for mode_index in modeSelection:
+            fig,ax=visualizeNormalMode(coordinates.flatten(),BSVVectorsCart[mode_index],atomicNumbers=atomicNumbers,projection="2d")
+            ax.set_aspect("equal")
+            # fig.suptitle("{} mode {}".format(filetag,mode))
+            if grid:
+                plt.grid()
+                ax.set_xticklabels([])
+                ax.set_yticklabels([])
+            else:
+                plt.axis("off")
+            plt.tight_layout()
+            pdfname="{}_NBSCart_x{}.pdf".format(filetag,mode_index+1)
+            plt.savefig(pdfname)
+            plt.show()
+
+    return BSVLengths,BSVVectors
 
 def iterativeProcrustes(initialCoordinates,finalCoordinates,selectedFinalCoordinates,
                         check_initial=True,check_each_step=False,rotations=True,start_with="rotation"):
@@ -1873,7 +2084,70 @@ def transformNormalModes(initialNormalModes,rotation_matrices_right,permutation_
         #rotatedInitialNormalModes[n]-=translation_vectors[0]
     return rotatedInitialNormalModes
 
+def fchk2shift(filenameRef,filenameCurrent,normalModesRef,atomic_masses,auto_align=False,show_all=False):
+    NAtoms,NCoords,atomicNumbersRef,coordinatesRef=fchk2coordinates(filenameRef)
+    coordinatesRef=coordinatesRef.reshape(NAtoms,3)
+    NAtoms,NCoords,atomicNumbersCurrent,coordinatesCurrent=fchk2coordinates(filenameCurrent)
+    coordinatesCurrent=coordinatesCurrent.reshape(NAtoms,3)
+    if auto_align:
+        rotation_matrices_right,permutation_matrices_right,translation_vector=iterativeProcrustes(coordinatesCurrent,
+                                                                          coordinatesRef,
+                                                                          coordinatesRef,
+                                                                          check_initial=show_all,
+                                                                          check_each_step=show_all)
+        rotatedCoordinatesCurrent=transformCoordinates(coordinatesCurrent,
+                              rotation_matrices_right,
+                              permutation_matrices_right,
+                              translation_vector)
+        # check if they were any atom permutations
+        for _,matrix in enumerate(permutation_matrices_right):
+            print("Permutation matrix of step {} is identity: {}".format(_,np.allclose(matrix,np.eye(len(matrix)))))
+            if not np.allclose(matrix,np.eye(len(matrix))):
+                print("WARNING, PERMUTATION HAPPENED")
+        # check type of rotations
+        for _,matrix in enumerate(rotation_matrices_right):
+            print("Rotation matrix of step {} is\n {}".format(_,matrix))
+        # if all True, we only rotated the "initial" fragment to superimpose it best to the "final" fragment
 
+        # AFTER #
+        if show_all:
+            fig=plt.figure()
+            ax=fig.add_subplot(1, 1, 1, projection='3d')
+            rmsd_after=np.sqrt(np.mean(np.sum((rotatedCoordinatesCurrent-coordinatesRef)**2, axis=1)))
+            title="Rotated and Permuted molecules: RMSD={:0.2f} (\AA)".format(rmsd_after)
+            ax.scatter(xs=rotatedCoordinatesCurrent[:, 0], ys=rotatedCoordinatesCurrent[:, 1], zs=rotatedCoordinatesCurrent[:, 2],
+                       marker="o", color="blue", s=40, label="Rotated Fragment")
+            ax.scatter(xs=coordinatesRef[:, 0], ys=coordinatesRef[:, 1], zs=coordinatesRef[:, 2],
+                       marker="o", color="red", s=40, label="Selected Fragment")
+            ax.set_title(title)
+            ax.set_xlim(-12,12)
+            ax.set_ylim(-12,12)
+            ax.set_zlim(-12,12)
+            ax.set_xlabel("X (\AA)")
+            ax.set_ylabel("Y (\AA)")
+            ax.set_zlabel("Z (\AA)")
+            ax.legend(loc="best")
+            plt.show()
+
+        initialCoordinates=np.copy(coordinatesRef)
+        finalCoordinates=np.copy(rotatedCoordinatesCurrent)
+    else:
+        initialCoordinates=np.copy(coordinatesRef)
+        finalCoordinates=np.copy(coordinatesCurrent)
+    initialCoordinates=initialCoordinates.flatten()
+    finalCoordinates=finalCoordinates.flatten()
+    NAtoms=int(finalCoordinates.size//3)
+    atomic_masses=atomic_masses.flatten()
+    deltaCoordinates=finalCoordinates-initialCoordinates
+    deltaCoordinates=deltaCoordinates.flatten()
+    for i in range(len(atomic_masses)):
+        deltaCoordinates[i]=deltaCoordinates[i]*np.sqrt(atomic_masses[i])/CST.BOHR_TO_ANGSTROM
+    shifts=[]
+    for i in range(len(normalModesRef)):
+        shifts.append(np.dot(normalModesRef[i],deltaCoordinates))
+    shifts=np.array(shifts)
+    return shifts
+    
 if __name__=="__main__":
     import argparse
     parser=argparse.ArgumentParser(
