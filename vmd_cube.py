@@ -46,7 +46,7 @@ vmd_template = """#
 # VMD script to plot MOs from cube files
 #
 # Load the molecule and change the atom style
-mol load cube PARAM_CUBEFILE.cube
+mol load cube PARAM_CUBEFULL
 mol modcolor 0 PARAM_CUBENUM Element
 mol modstyle 0 PARAM_CUBENUM Licorice 0.110000 10.000000 10.000000
 #mol modstyle 0 PARAM_CUBENUM CPK 0.400000 0.40000 30.000000 16.000000
@@ -287,7 +287,9 @@ def find_cubes(options):
             nf = f.replace("\"", "pp")
             os.rename(f,nf)
             f = nf
-        if f[-5:] == '.cube':
+        if f.split(".")[-1] == 'cub':
+            sorted_files.append(f)
+        if f.split(".")[-1] == 'cube':
             sorted_files.append(f)
         elif f[-8:] == '.cube.gz':
             found_zipped = True
@@ -316,7 +318,8 @@ def write_and_run_vmd_script(options,cube_files):
 
     for n,f in enumerate(cube_files):
         replacement_map["PARAM_CUBENUM"] = '%03d' % n
-        replacement_map["PARAM_CUBEFILE"] = options["CUBEDIR"][0] + '/' + f[:-5]
+        replacement_map["PARAM_CUBEFILE"] = options["CUBEDIR"][0] + '/' + ".".join(f.split(".")[:-1])
+        replacement_map["PARAM_CUBEFULL"] = options["CUBEDIR"][0] + '/' + f
 
         # Default isocontour values or user-provided
         isovalue = options["ISOVALUE"][0][:]
@@ -381,7 +384,7 @@ def call_montage(options,cube_files):
             densities = []
             basis_functions = []
             for f in cube_files:
-                tga_file = f[:-5] + ".tga"
+                tga_file = ".".join(f.split(".")[:-1]) + ".tga"
                 if "Psi_a" in f:
                     alpha_mos.append(tga_file)
                 if "Psi_b" in f:
