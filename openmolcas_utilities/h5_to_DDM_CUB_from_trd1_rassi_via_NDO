@@ -1,0 +1,439 @@
+#!/usr/bin/env python3
+import h5py
+import sys,os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import scipy.linalg
+import numpy.linalg
+import subprocess
+
+# my version has GUI, not usable on nodes
+# multiwfn="/mnt/lustre/jgaliana/programs/Multiwfn_3.8_dev_bin_Linux/Multiwfn"
+# JGV version has no GUI, usable on nodes
+multiwfn="/mnt/lustre/jgv/programs/Multiwfn_3.8_dev_src_Linux/Multiwfn_noGUI"
+
+cwd = os.getcwd()
+filename_rasscf=sys.argv[1]
+filename_rassi=sys.argv[2]
+npair=int(sys.argv[3])
+filetag=filename_rasscf.split(".")[0]
+print("Initial file tag ",filetag)
+print("Initial file name (RASSCF) ",filename_rasscf)
+print("Initial file name (RASSI) ",filename_rassi)
+
+def do_svd(matrix,lapack_driver="gesvd",full_matrices=True,debug_print=False,result_print=True,print_with_factor=None):
+    U,s,Vh=scipy.linalg.svd(matrix,full_matrices=full_matrices,lapack_driver=lapack_driver)
+    if debug_print:
+        print("U.shape", U.shape)
+        print("s.shape", s.shape)
+        print("s",s)
+        print("Vh.shape", Vh.shape)
+    ExcitationAmplitudes=np.copy(s) # s, or capital Lambda
+    if print_with_factor=="1/sqrt2":
+        ExcitationAmplitudes*=(1/np.sqrt(2))
+    if isinstance(print_with_factor,int) or isinstance(print_with_factor,float):
+        ExcitationAmplitudes*=print_with_factor
+    MEigenvalues=ExcitationAmplitudes**2 # lambda, eigenvalues of DDdagger
+    ExcitationContributions=MEigenvalues/np.sum(MEigenvalues)
+    if result_print:
+        pd.options.display.float_format = '{:,.5f}'.format
+        df=pd.DataFrame({"ExcitationAmplitudes":ExcitationAmplitudes,"MEigenvalues":MEigenvalues,"ExcitationContributions":ExcitationContributions},index=np.arange(1,len(ExcitationAmplitudes)+1))
+        print(df.head().to_string())
+    HoleNDOVectors=np.copy(U)
+    PartNDOVectors=np.copy(Vh.T)
+    if debug_print:
+        print("UUT",np.dot(U,U.T))
+        print("VVT",np.dot(Vh,Vh.T))
+        print("reconstructed matrix",np.dot(U,np.dot(np.diag(s),Vh))) # U s VT
+        print("reconstructed S",np.dot(U.T,np.dot(matrix,Vh.T))) # UT D V
+    return ExcitationAmplitudes,ExcitationContributions,HoleNDOVectors,PartNDOVectors
+
+def read_cube(filename):
+    with open(filename,"r") as f:
+        lines=f.readlines()
+        title=lines[0]
+        NGridPoints=int(lines[1].split()[1])
+        NAtoms=int(lines[2].split()[0])
+        startCoordinates=np.array(lines[2].split()[1:],dtype=float)
+        Nx,dx=int(lines[3].split()[0]),float(lines[3].split()[1])
+        Ny,dy=int(lines[4].split()[0]),float(lines[4].split()[2])
+        Nz,dz=int(lines[5].split()[0]),float(lines[5].split()[3])
+        atomsInformation=np.array([line.split() for line in lines[6:6+NAtoms]],dtype=object)
+        atomsCoordinates=atomsInformation[:,2:].astype(float)
+        atomicNumbers=atomsInformation[:,0].astype(float)
+        cubeData=np.ones((Nx,Ny,Nz),type(float))
+        if Nz % 6 == 0:
+            nlines = Nz // 6
+        else:
+            nlines = Nz // 6 + 1
+        line = NAtoms + 6
+        for x in range(Nx):
+            for y in range(Ny):
+                z = 0
+                for j in range(nlines):
+                    line_data = lines[line].split()
+                    for i in range(len(line_data)):
+                        cubeData[x,y,z] = float(line_data[i])
+                        z += 1
+                    line += 1
+    return cubeData
+
+def write_cube(cubeData,filename,header=None):
+    print("writing {}".format(filename))
+    Nx,Ny,Nz=cubeData.shape
+    if Nz % 6 == 0:
+        nlines = Nz // 6
+    else:
+        nlines = Nz // 6 + 1
+    line=0
+    with open(filename,"w") as f:
+        if header is not None:
+            f.write("".join(header))
+        for x in range(Nx):
+            for y in range(Ny):
+                z = 0
+                for j in range(nlines-1):
+                    for i in range(6):
+                        f.write(str(cubeData[x,y,z])+"\t")
+                        z += 1
+                    f.write("\n")
+                    line += 1
+                for i in range(Nz % 6):
+                    f.write(str(cubeData[x,y,z])+"\t")
+                    z += 1
+                f.write("\n")
+    return
+
+################################################################
+## extract data from full h5 file                             ##
+################################################################
+
+directory_name=cwd
+with h5py.File(directory_name+"/"+filename_rasscf,"r") as f:
+    MOVectors=f['MO_VECTORS'][:].astype(float)
+    MOTypeIndices=f['MO_TYPEINDICES'][:].astype(str)
+with h5py.File(directory_name+"/"+filename_rassi,"r") as f:
+    NStates=f.attrs['NSTATE']
+    NBast=f.attrs['NBAS'][0]
+    NAtoms=f.attrs['NATOMS_UNIQUE']
+    AtomicNumbers=f['CENTER_ATNUMS'][:].astype(int)
+    AtomicLabels=f['CENTER_LABELS'][:].astype(str)
+    Coordinates=f['CENTER_COORDINATES'][:].astype(float)
+    Primitives=f['PRIMITIVES'][:].astype(float)
+    PrimitiveIDs=f['PRIMITIVE_IDS'][:].astype(int)
+    TDM=f['SFS_TRANSITION_DENSITIES'][:] # if RASSI file, in the basis of AO 
+    TSDM=f['SFS_TRANSITION_SPIN_DENSITIES'][:] # if RASSI file, in the basis of AO 
+    AOOverlap=f['AO_OVERLAP_MATRIX'][:] # if RASSI file, overlap matrix for the atomic orbitals
+pairs=np.array([(i,j) for i in range(NStates) for j in range(i,NStates)])
+NPairs=len(pairs)
+
+print("NBast: ",NBast)
+print("MOVectors.shape: ",MOVectors.shape)
+MOVectors=MOVectors.reshape((NBast,NBast))
+print("MOVectors new shape: ",MOVectors.shape) # MO vectors in rows?
+print("AOOverlap shape: ",AOOverlap.shape)
+AOOverlap=AOOverlap.reshape((NBast,NBast))
+print("AOOverlap new shape: ",AOOverlap.shape)
+CVectors=MOVectors.T
+print("CVectors.shape: ",CVectors.shape)
+
+print("C.T·S·C=(should be identity)\n",np.dot(CVectors.T,np.dot(AOOverlap,CVectors)))
+
+print("NStates: ",NStates)
+print("NPairs with diagonal ",len(pairs))
+print("TDM shape",TDM.shape)
+TDM=TDM.reshape((NStates,NStates,NBast,NBast))
+print("TDM new shape",TDM.shape)
+print("TSDM shape",TSDM.shape)
+TSDM=TSDM.reshape((NStates,NStates,NBast,NBast))
+print("TSDM new shape",TSDM.shape)
+TDM=0.5*(TDM+TSDM)
+print("TDM = 0.5*(TDM + TSDM) (transition spin density added)")
+
+pair=pairs[npair]
+
+DDMJ_AO=TDM[pairs[npair][1]][pairs[npair][1]]-TDM[pairs[npair][0]][pairs[npair][0]]
+print("Pair of state {}\n should be rho(S{})-rho(S{})".format(pairs[npair],*pairs[npair][::-1]))
+# print("DDMJ_AO for pair J in AO basis: ",DDMJ_AO.shape)
+fig=plt.figure()
+ax=fig.add_subplot(111)
+ax.imshow(DDMJ_AO)
+ax.set_title("pair of state {}\n should be \Delta rho(S{},S{})".format(pairs[npair],*pairs[npair]))
+# print(stop)
+
+svd=True
+ExcitationAmplitudes,ExcitationContributions,HoleNDOVectors,PartNDOVectors=do_svd(DDMJ_AO)
+
+if True:
+    DDMJ=numpy.linalg.multi_dot([CVectors.T,AOOverlap,DDMJ_AO,AOOverlap,CVectors])
+    print("DDMJ for pair J in transformed basis: ",DDMJ.shape)
+    print("Transformation is C^T·S·D·S·C")
+    ExcitationAmplitudes,ExcitationContributions,HoleNDOVectors,PartNDOVectors=do_svd(DDMJ,print_with_factor=None)
+    HoleNDOVectors=numpy.linalg.multi_dot([CVectors,HoleNDOVectors])
+    PartNDOVectors=numpy.linalg.multi_dot([CVectors,PartNDOVectors])
+    print("And transforming result NDOVectors with C·NDOVectors")
+
+################################################################
+## Printing hole and part NDOs as molden files                ##
+################################################################
+
+pd.options.display.float_format = '{:,.8f}'.format
+if not svd:
+    occupations=np.copy(ExcitationAmplitudes)[::-1]
+if svd:
+    occupations=np.copy(ExcitationContributions)
+force_reordering=True
+for name in ["Hole","Part"]:
+    with open(filetag+".h5.{}NDOs_S{}S{}.from_trd1_rassi_for_TDM_CUB.molden".format(name,*pairs[npair]),"w") as o:
+        ############################################
+        #  START of REWRITE PRIMITIVES from RASSI  #
+        ############################################
+        pd.options.display.float_format = '{:,.8f}'.format
+        o.write("[Molden Format]\n")
+        o.write("[N_Atoms]\n\t{}\n".format(NAtoms))
+        o.write("[Atoms] (AU)\n")
+        df=pd.DataFrame({"atomic center":np.arange(1,NAtoms+1),"atomic number":AtomicNumbers,"x":Coordinates[:,0],"y":Coordinates[:,1],"z":Coordinates[:,2]},index=AtomicLabels)
+        o.write(df.to_string(header=False)+"\n")
+        o.write("[5D]\n")
+        o.write("[7F]\n")
+        o.write("[9G]\n")
+        o.write("[GTO] (AU)\n")
+        pd.options.display.float_format = '{:,.9E}'.format
+        Primitives_dic={}
+        PrimitivesPerAtom=[]
+        OrbitalsPerAtom=[]
+        ShellLabels=["s","p","d","f","g"]
+        for _ in range(1,NAtoms+1):
+            nprimitives=0
+            norbitals=0
+            # select PrimitivesIDs and Primitives for atom number _
+            where=(PrimitiveIDs[:,0]==_)
+            Primitives_dic[str(_)]=(PrimitiveIDs[where][:,1:],Primitives[where])
+            # Write number atom _
+            o.write("   {}\n".format(_))
+            dico=Primitives_dic[str(_)]
+            # print(f"Here, Primitives_dic for {AtomicLabels[_-1]}\n",dico)
+            nmax=np.max(dico[0][dico[0][:,0]==0])
+            lmax=np.max(dico[0][:,0])
+            # print("nmax is ",nmax)
+            # print("lmax is ",lmax)
+            # DONE write the primitives looping over the (angmom,shell_types) possibilities...
+            # TODO check if this loop is correct for all types of atoms...
+            for l in range(lmax+1):
+                for n in range(1,nmax-l+1):
+                    # nl
+                    where=np.logical_and(dico[0][:,0]==l,dico[0][:,1]==n)
+                    if len(where[where])>0:
+                        nprimitives+=len(where[where])
+                        norbitals+=2*l+1
+                        o.write("   {}\t{}".format(ShellLabels[l],len(where[where]))+"\n")
+                        df=pd.DataFrame({"tab":[""]*len(where[where]),"exp":dico[1][where][:,0],"cont":dico[1][where][:,1]})
+                        o.write(df.to_string(header=False,index=False)+"\n")
+            o.write("\n")
+            PrimitivesPerAtom.append(nprimitives)
+            OrbitalsPerAtom.append(norbitals)
+            print(f"Here, norbitals for {AtomicLabels[_-1]}\n",norbitals)
+        ############################################
+        #  END of REWRITE PRIMITIVES from RASSI    #
+        ############################################
+
+        ############################################
+        #  START of REORDERING AO IN MOLDEN FMT    #
+        ############################################
+        pd.options.display.float_format = '{:,.8f}'.format
+        o.write("[MO]\n")
+        permutations=np.arange(NBast).astype(int)
+        if force_reordering:
+            counter=0
+            for i in range(NAtoms):
+                if any(car in AtomicLabels[i] for car in ["H"]):
+                    nmax=2
+                    shell_types=["s","p"]
+                if any(car in AtomicLabels[i] for car in ["C","N","O"]):
+                    ### # [0,1,2,3,4,5,6,7,8,9,10,11,12,13]
+                    ### # 1s2s3s2x3x2y3y2z3z-2 -1  0 +1 +2 
+                    ### # 1s2s3s2x2y2z3x3y3z 0 +1 -1 +2 -2 
+                    ### permutation=np.array([0,1,2,3,5,7,4,6,8,11,12,10,13,9])
+                    ### permutations[np.arange(counter,counter+OrbitalsPerAtom[i])]=counter+permutation
+                    nmax=3
+                    shell_types=["s","p","d"]
+                # elif any(car in AtomicLabels[i] for car in ["S"]): # careful, probably not compatible with two-letter labels, e.g., Se for Selenium...
+                if any(car in AtomicLabels[i] for car in ["S"]): # careful, probably not compatible with two-letter labels, e.g., Se for Selenium...
+                    ### # [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]
+                    ### # 1s2s3s4s2x3x4x2y3y4y 2z 3z 4z -2 -1  0 +1 +2 
+                    ### # 1s2s3s4s2x2y2z3x3y3z 4x 4y 4z  0 +1 -1 +2 -2 
+                    ### permutation=np.array([0,1,2,3,4,7,10,5,8,11,6,9,12,15,16,14,17,13])
+                    ### permutations[np.arange(counter,counter+OrbitalsPerAtom[i])]=counter+permutation
+                    nmax=4
+                    shell_types=["s","p","d"]
+                # else:
+                if True:
+                    permutation=[]
+                    d_permutation=[2,3,1,4,0]
+                    index=0
+                    for shell_type in shell_types:
+                        if shell_type=="s":
+                            for n in range(nmax):
+                                permutation.append(n)
+                                # 0 # 0 
+                                # 1 # 1
+                                # 2 # 2
+                                #   # 3
+                        elif shell_type=="p":
+                            for n in range(1,nmax):
+                                for p in range(3):
+                                    permutation.append(nmax+(nmax-1)*p+(n-1))
+                                # 3 # 4
+                                # 5 # 7 
+                                # 7 # 10
+                                # 
+                                # 4 # 5
+                                # 6 # 8
+                                # 8 # 11
+                                # 
+                                #  # 6
+                                #  # 9
+                                #  # 12
+                        elif shell_type=="d":
+                            for d in range(5):
+                                permutation.append(nmax+(nmax-1)*2+(nmax-1)+d_permutation[d])
+                print(f"Here, permutation for atom {AtomicLabels[i]} is ",permutation)
+                permutations[np.arange(counter,counter+OrbitalsPerAtom[i])]=counter+np.array(permutation)
+                    # ns,npx,npy,npz,nd(-.+)
+                    # ns,n(px,py,pz),nd(0+-+-)
+                counter+=OrbitalsPerAtom[i]
+        # print("Permutation applied to each MO vector so that the orbitals are correctly printed:\n",permutations)
+        for _,occ in enumerate(occupations):
+            if not svd:
+                if name=="Hole":
+                    newMOVector=HoleNDOVectors.T[::-1][_][permutations]
+                if name=="Part":
+                    newMOVector=PartNDOVectors.T[::-1][_][permutations]
+            if svd:
+                if name=="Hole":
+                    newMOVector=HoleNDOVectors.T[_][permutations]
+                if name=="Part":
+                    newMOVector=PartNDOVectors.T[_][permutations]
+            ############################################
+            #  END   of REORDERING AO IN MOLDEN FMT    #
+            ############################################
+            o.write("Sym= {}a\n".format(_+1))
+            o.write("Ene= {}\n".format(0.0))
+            o.write("Spin= Alpha\n")
+            o.write("Occup= {}\n".format(occ))
+            df=pd.DataFrame({"MOVector":newMOVector},index=np.arange(1,NBast+1))
+            o.write(df.to_string(header=False)+"\n")
+
+################################################################
+## produce cube files for (active) SA-Molecular Orbitals      ##
+################################################################
+
+ExcitationAmplitudes=np.array(ExcitationAmplitudes,dtype=float)
+MEigenvalues=ExcitationAmplitudes**2
+ExcitationContributions=np.array(ExcitationContributions,dtype=float)
+HoleIndices=np.array(np.arange(len(ExcitationAmplitudes))+1,dtype=int)
+PartIndices=np.array(np.arange(len(ExcitationAmplitudes))+1,dtype=int)
+
+select_where=(ExcitationContributions>=5e-8)
+ExcitationAmplitudes=ExcitationAmplitudes[select_where]
+MEigenvalues=MEigenvalues[select_where]
+ExcitationContributions=ExcitationContributions[select_where]
+HoleIndices=HoleIndices[select_where]
+PartIndices=PartIndices[select_where]
+
+df=pd.DataFrame({
+    "ExcitationAmplitudes":ExcitationAmplitudes,
+    "MEigenvalues":MEigenvalues,
+    "ExcitationContributions":ExcitationContributions,
+    "HoleIndices":HoleIndices,
+    "PartIndices":PartIndices,
+    })
+print(df.to_string(float_format=lambda x: '%.5f' % x))
+print(df.to_latex(float_format=lambda x: '%.5f' % x))
+
+produce_MO_cubes=True
+if produce_MO_cubes:
+    print("########################################")
+    print("## Producing cubes for Hole NDOs      ##")
+    print("########################################")
+    name="Hole"
+    filename_molden=filetag+".h5.{}NDOs_S{}S{}.from_trd1_rassi_for_TDM_CUB.molden".format(name,*pairs[npair])
+    dirname=filename_molden+".cubes/"
+    if not os.path.isdir(dirname):
+        os.makedirs(dirname)
+    # arguments=["Multiwfn",filename_molden]
+    arguments=[multiwfn,filename_molden]
+    # for i in IndicesActiveOrbitals:
+    for i in HoleIndices:
+        process=subprocess.Popen(arguments,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
+        input_data="\n".join(["5","4",str(i),"2","2","q"])
+        print(input_data)
+        output,errors=process.communicate(input=input_data)
+        os.system("mv MOvalue.cub {}/MO_{}.cub".format(dirname,i))
+    print("########################################")
+    print("## Producing cubes for Part NDOs      ##")
+    print("########################################")
+    name="Part"
+    filename_molden=filetag+".h5.{}NDOs_S{}S{}.from_trd1_rassi_for_TDM_CUB.molden".format(name,*pairs[npair])
+    dirname=filename_molden+".cubes/"
+    if not os.path.isdir(dirname):
+        os.makedirs(dirname)
+    # arguments=["Multiwfn",filename_molden]
+    arguments=[multiwfn,filename_molden]
+    # for i in IndicesActiveOrbitals:
+    for i in PartIndices:
+        process=subprocess.Popen(arguments,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
+        input_data="\n".join(["5","4",str(i),"2","2","q"])
+        print(input_data)
+        output,errors=process.communicate(input=input_data)
+        os.system("mv MOvalue.cub {}/MO_{}.cub".format(dirname,i))
+
+read_MO_cubes=True
+if read_MO_cubes:
+    print("########################################")
+    print("## Reading cubes for Hole NDOs        ##")
+    print("########################################")
+    name="Hole"
+    filename_molden=filetag+".h5.{}NDOs_S{}S{}.from_trd1_rassi_for_TDM_CUB.molden".format(name,*pairs[npair])
+    dirname=filename_molden+".cubes/"
+    Nx,Ny,Nz=read_cube("{}/MO_{}.cub".format(dirname,HoleIndices[0])).shape
+    with open("{}/MO_{}.cub".format(dirname,HoleIndices[0]),"r") as f:
+        header=f.readlines()[:6+NAtoms]
+    Hole_cubeData=np.zeros((len(HoleIndices),Nx,Ny,Nz))
+    # for _,i in enumerate(IndicesActiveOrbitals):
+    for _,i in enumerate(HoleIndices):
+        print("reading orbital {} cube file".format(i))
+        Hole_cubeData[_]=read_cube("{}/MO_{}.cub".format(dirname,i))
+    Hole_cubeData=np.array(Hole_cubeData)
+    print("Hole_cubeData: ",Hole_cubeData.shape)
+    print("########################################")
+    print("## Reading cubes for Part NDOs        ##")
+    print("########################################")
+    name="Part"
+    filename_molden=filetag+".h5.{}NDOs_S{}S{}.from_trd1_rassi_for_TDM_CUB.molden".format(name,*pairs[npair])
+    dirname=filename_molden+".cubes/"
+    Nx,Ny,Nz=read_cube("{}/MO_{}.cub".format(dirname,PartIndices[0])).shape
+    with open("{}/MO_{}.cub".format(dirname,PartIndices[0]),"r") as f:
+        header=f.readlines()[:6+NAtoms]
+    Part_cubeData=np.zeros((len(PartIndices),Nx,Ny,Nz))
+    # for _,i in enumerate(IndicesActiveOrbitals):
+    for _,i in enumerate(PartIndices):
+        print("reading orbital {} cube file".format(i))
+        Part_cubeData[_]=read_cube("{}/MO_{}.cub".format(dirname,i))
+    Part_cubeData=np.array(Part_cubeData)
+    print("Part_cubeData: ",Part_cubeData.shape)
+
+print("#########################################")
+print("## Computing density from NDO pairs    ##")
+print("#########################################")
+density=np.zeros((Nx,Ny,Nz))
+for _,p in enumerate(HoleIndices):
+    print("for density ({}, {}), computing product of HoleNDO·PartNDO ({}, {})".format(*pairs[npair],p,p))
+    density+=ExcitationAmplitudes[_]*Hole_cubeData[_]*Part_cubeData[_]
+
+output_dir=filetag+".h5.differenceDensity.from_trd1_rassi_for_DDM_CUB.cubes"
+if not os.path.isdir(output_dir):
+    os.makedirs(output_dir)
+output_filename=output_dir+"/"+filetag+"_"+"chargeDifferenceDensity_S{}-S{}.cub".format(*pairs[npair])
+write_cube(density,output_filename,header=header)
