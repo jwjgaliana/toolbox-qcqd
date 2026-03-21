@@ -1,6 +1,15 @@
 """
 This module defines project-level constants.
+Also, the following utilities are provided:
+    - fortranFormat(n)
+    - is_tool(name)
+
+TODO: 
+    - (maybe) replace hard-coded constants by scipy.constants module?
 """
+
+import numpy as np
+import itertools
 
 PLANCK_CONSTANT=6.62607015e-34
 LIGHT_SPEED=299792458
@@ -29,4 +38,43 @@ HARTREE_TO_RCM=HARTREE_TO_EV/EV_TO_NM*RNM_TO_RCM
 # rnm2rcm=10**7
 # hartree2rcm=hartree2ev/ev2nm*rnm2rcm
 # MWCurvature2Frequency=hartree2ev/ev2nm*rnm2rcm
+
+
+def fortranFormat(n):
+    if np.sign(n)>=0:
+        sn=""
+    else:
+        sn="-"
+    a = '{:.9E}'.format(abs(float(n)))
+    e = a.find('E')
+    return sn+'0.{}{}{}{:03d}'.format(a[0],a[2:e],a[e:e+2],abs(int(a[e+1:])*1+1))
+
+def is_tool(name):
+    """Check whether 'name' is on PATH and marked as executable."""
+    from shutil import which
+    return which(name) is not None
+
+def do_pdfcrop(filename,crop=True):
+    if is_tool("pdfcrop") and crop:
+        import os
+        os.system("pdfcrop "+filename)
+
+def myLorentzian(x,x0=0,Gamma=1):
+    return (Gamma/(2*np.pi))*(1)/((Gamma**2/4)+(x-x0)**2)
+def myGaussian(x,x0=0,sigma=1):
+    """ 
+    attempt of vectorizing function wrt x0 with try and TypeError
+    """
+    try:
+        return np.array([np.exp(-(x-x00)**2/(2*sigma**2)) for x00 in x0]).T
+    except TypeError:
+        return np.exp(-(x-x0)**2/(2*sigma**2))
+
+def duplicate_xyticks(ax):
+    axA=ax.twinx()
+    axA.minorticks_on()
+    axA.set_yticklabels([])
+    axB=ax.twiny()
+    axB.minorticks_on()
+    axB.set_xticklabels([])
 
