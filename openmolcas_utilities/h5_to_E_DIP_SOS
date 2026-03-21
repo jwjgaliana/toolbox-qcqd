@@ -1,0 +1,85 @@
+#!/usr/bin/env python
+import h5py
+import sys,os
+import shutil
+import numpy as np
+import pandas as pd
+
+filename=sys.argv[1]
+filetag=".".join(filename.split(".")[:-1])
+print("Initial file name ",filename)
+print("Initial file tag ",filetag)
+cwd = os.getcwd()
+
+dicto=["E1","E2","dip1","dip2r","dip2i","Hr","Hi"]
+
+################################################################
+## extract data from full h5 file and create smaller h5 file  ##
+################################################################
+
+directory_name=cwd
+with h5py.File(directory_name+"/"+filetag+".h5","r") as f:
+    dat=[]
+    E1=f['SFS_ENERGIES'][:]                                 # energies corresponding to the lasts "RASSI State 1 Total energy:"
+    dat.append(E1)
+    E2=f['SOS_ENERGIES'][:]+E1[0]                           # energies corresponding to the lasts "SO-RASSI State 1 Total energy:"
+    dat.append(E2)
+    dip1=f['SFS_EDIPMOM'][:]
+    dat.append(dip1)
+    dip2r=f["SOS_EDIPMOM_REAL"][:]
+    dat.append(dip2r)
+    dip2i=f["SOS_EDIPMOM_IMAG"][:]
+    dat.append(dip2i)
+    Hr=f["HSO_MATRIX_REAL"][:]
+    dat.append(Hr)
+    Hi=f["HSO_MATRIX_IMAG"][:]
+    dat.append(Hi)
+print("Extracted data re-compressed in ",filetag+".ExtractedData.h5")
+with h5py.File(directory_name+"/"+filetag+".ExtractedData.h5","w") as f:
+    for i,j in zip(dicto,dat):
+        dset=f.create_dataset(i,j.shape,data=j,compression="gzip",compression_opts=9)
+
+################################################################
+## creating .dat files in data_dir                            ##
+################################################################
+
+filename=filetag+".ExtractedData.h5"
+filetag=".".join(filename.split(".")[:-1])
+print("Data will be extracted from ",filename)
+data_dir="datafiles_"+filetag
+print("Dat files will be put in {}".format(data_dir))
+if not os.path.exists(data_dir):
+    os.makedirs(data_dir)
+
+cwd = os.getcwd()
+
+dicto=["E1","E2","dip1","dip2r","dip2i","Hr","Hi"]
+
+print_header=False
+print_index=False
+
+directory_name = cwd
+with h5py.File(directory_name+"/"+filetag+".h5","r") as f:
+    E1=f['E1'][:]
+    E2=f['E2'][:]
+    dip1=f['dip1'][:]
+    dip2r=f["dip2r"][:]
+    dip2i=f["dip2i"][:]
+NStates=len(E1)//2
+pd.options.display.float_format = '{:,.16f}'.format
+with open(cwd+'/'+data_dir+'/E1_n1.dat', "w") as g:
+    df=pd.DataFrame({'E1':E1-E1[0]})
+    g.write(df.to_string(header=print_header,index=print_index))
+with open(cwd+'/'+data_dir+'/E2_n1.dat', "w") as g:
+    df=pd.DataFrame({'E2':E2-E2[0]})
+    g.write(df.to_string(header=print_header,index=print_index))
+pd.options.display.float_format = '{:,.16E}'.format
+with open(cwd+'/'+data_dir+'/dip1_n1.dat', "w") as g:
+    df=pd.DataFrame({'dip1_x':dip1[0,0,:],'dip1_y':dip1[1,0,:],'dip1_z':dip1[2,0,:],})
+    g.write(df.to_string(header=print_header,index=print_index))
+with open(cwd+'/'+data_dir+'/dip2r_n1.dat', "w") as g:
+    df=pd.DataFrame({'dip2r_x':dip2r[0,0,:],'dip2r_y':dip2r[1,0,:],'dip2r_z':dip2r[2,0,:],})
+    g.write(df.to_string(header=print_header,index=print_index))
+with open(cwd+'/'+data_dir+'/dip2i_n1.dat', "w") as g:
+    df=pd.DataFrame({'dip2i_x':dip2i[0,0,:],'dip2i_y':dip2i[1,0,:],'dip2i_z':dip2i[2,0,:],})
+    g.write(df.to_string(header=print_header,index=print_index))
