@@ -200,6 +200,7 @@ for sp in snapshots:
                 # output_dir="stateDensityCube_from_trd1_rassi_via_NO"
                 # if not os.path.isdir(output_dir):
                     # os.makedirs(output_dir)
+                # if stored as in MN5/SOCS dynamics
                 h5file=tar_of_h5.extractfile(tar_of_h5.getmember(filename_rasscf))
                 # with h5py.File(directory_name+"/"+filename_rasscf,"r") as f:
                 with h5py.File(h5file,"r") as f:
@@ -236,7 +237,6 @@ for sp in snapshots:
 
                 print("NStates: ",NStates)
                 print("NPairs with diagonal ",len(pairs))
-                # print("Pairs: \n",pairs)
                 print("TDM shape",TDM.shape)
                 TDM=TDM.reshape((NStates,NStates,NBast,NBast))
                 print("TDM new shape",TDM.shape)
@@ -254,11 +254,6 @@ for sp in snapshots:
                         if itemp!=jtemp:
                             TDM[itemp,jtemp]=np.zeros((NBast,NBast))
                 print("TDM new shape",TDM.shape)
-                # print(pd.DataFrame(TDM[0,0]))
-                # print(pd.DataFrame(TDM[1,0]))
-                # print(pd.DataFrame(TDM[1,1]))
-                # print(pd.DataFrame(TDM[1,2]))
-                # print(stop)
 
                 if calc=="cas1":
                     coefficients_sp_list=[dico_coefficients["SINGLETS"][sp]]
@@ -536,7 +531,3 @@ for sp in snapshots:
                     # multiply electron density with basin
                     eldens_basin_cubeData=basin_cubeData*density_cubeData
                     write_cube(eldens_basin_cubeData,output_dir+"eldens_basin{}.cub".format(key),header=header)
-
-# old things
-    # ",".join(["1","10","20","36"]), # selected basins, basin0001 used for grid spec. in the following
-
