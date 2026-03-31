@@ -3,6 +3,7 @@ Tools for theoretical chemistry (quantum chemistry and quantum dynamics).
 Interfaces with QCQD softwares. 
 Most of the scripts are for extracting data from outputs of QCQD softwares (Gaussian, Quantics, openMolcas, SHARC), and for further analysis of such data.
 ## Contents
+### Modules and interface/analysis scripts
 - CONSTANTS.py, intended for definition of physical/numerical constants and general python auxiliary functions. 
 - TOOLBOX.py, mostly contains read/write i/o interface for Gaussian, non-exhaustively
     - read .fchk files for energy derivatives (mass-weighted or not, first and second order)
@@ -16,7 +17,7 @@ Most of the scripts are for extracting data from outputs of QCQD softwares (Gaus
     - do_charges_SFS{,\_pop}.py to read rasscf.h5 and rassi.h5 to get density difference matrices, associated NDOs and density difference $\Delta\rho_{0i}(\mathbf{r})$
     - h5_to_TDM_CUB_from_trd1_rassi_via_NTO to read rasscf.h5 and rassi.h5 to get density difference matrices, associated NDOs and density difference $\Delta\rho_{0i}(\mathbf{r})$ 
       [computes charges and/or cube files for basins and integrated electron density in basins]
-## Notebooks for future pedagogical use
+### Notebooks for future pedagogical use
 - fchk2NormalModes, contains Jupyter Notebook to obtain NMV from Hessian calculations, read and visualize them
 - fchk2NumericalBranchingSpace, contains Jupyter Notebook to obtained (numerical) branching space from two Hessian calculations at a CoIn geometry [Gonon et al., JCP, 2017]
 - autocorrelation2spectrum, contains Jupyter Notebook to demonstrate the use of autocorrelation functions ($\langle\psi(t)|\psi(0)\rangle$) for the study of vibronic spectra (absorption and emission) beyond the Born-Oppenheimer and harmonic approximations
