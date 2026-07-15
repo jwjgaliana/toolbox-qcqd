@@ -8,6 +8,7 @@ import scipy.linalg
 import numpy.linalg
 import subprocess
 # Main Author: J. Galiana, UAM
+# Modifications with A. Binu, UAM for cc-pvdz to cc-pvtz
 
 # my version has GUI, not usable on nodes
 # multiwfn="/mnt/lustre/jgaliana/programs/Multiwfn_3.8_dev_bin_Linux/Multiwfn"
@@ -149,6 +150,7 @@ print("TDM new shape",TDM.shape)
 print("TSDM shape",TSDM.shape)
 TSDM=TSDM.reshape((NStates,NStates,NBast,NBast))
 print("TSDM new shape",TSDM.shape)
+# not sure of this physically (but numerically ok)
 TDM=0.5*(TDM+TSDM)
 print("TDM = 0.5*(TDM + TSDM) (transition spin density added)")
 
@@ -248,8 +250,10 @@ for name in ["Hole","Part"]:
             counter=0
             for i in range(NAtoms):
                 if any(car in AtomicLabels[i] for car in ["H"]):
-                    nmax=2
-                    shell_types=["s","p"]
+                    # nmax=2
+                    nmax=3
+                    # shell_types=["s","p","d"]
+                    shell_types=["s","p","d"]
                 if any(car in AtomicLabels[i] for car in ["C","N","O"]):
                     ### # [0,1,2,3,4,5,6,7,8,9,10,11,12,13]
                     ### # 1s2s3s2x3x2y3y2z3z-2 -1  0 +1 +2 
@@ -257,7 +261,9 @@ for name in ["Hole","Part"]:
                     ### permutation=np.array([0,1,2,3,5,7,4,6,8,11,12,10,13,9])
                     ### permutations[np.arange(counter,counter+OrbitalsPerAtom[i])]=counter+permutation
                     nmax=3
-                    shell_types=["s","p","d"]
+                    # nmax=4
+                    # shell_types=["s","p","d"]
+                    shell_types=["s","p","d","f"]
                 # elif any(car in AtomicLabels[i] for car in ["S"]): # careful, probably not compatible with two-letter labels, e.g., Se for Selenium...
                 if any(car in AtomicLabels[i] for car in ["S"]): # careful, probably not compatible with two-letter labels, e.g., Se for Selenium...
                     ### # [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]
@@ -271,6 +277,7 @@ for name in ["Hole","Part"]:
                 if True:
                     permutation=[]
                     d_permutation=[2,3,1,4,0]
+                    f_permutation=[3,4,2,5,1,6,0]
                     index=0
                     for shell_type in shell_types:
                         if shell_type=="s":
@@ -296,8 +303,13 @@ for name in ["Hole","Part"]:
                                 #  # 9
                                 #  # 12
                         elif shell_type=="d":
-                            for d in range(5):
-                                permutation.append(nmax+(nmax-1)*2+(nmax-1)+d_permutation[d])
+                            for n in range(2,nmax):
+                                for d in range(5):
+                                    permutation.append(nmax+(nmax-1)*2+(nmax-1)+d_permutation[d])
+                        elif shell_type=="f":
+                            for n in range(3,nmax):
+                                for f in range(7):
+                                    permutation.append(nmax+(nmax-1)*2+(nmax-1)+f_permutation[f])
                 print(f"Here, permutation for atom {AtomicLabels[i]} is ",permutation)
                 permutations[np.arange(counter,counter+OrbitalsPerAtom[i])]=counter+np.array(permutation)
                     # ns,npx,npy,npz,nd(-.+)
