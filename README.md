@@ -13,9 +13,9 @@ Most of the scripts are for extracting data from outputs of QCQD softwares (Gaus
 - openmolcas_utilities contains:
     - h5_to_E_DIP_SFS to read rassi.h5 to get d0i(real) dipoles and transition energies of spin-free (singlets, triplets...) states
     - h5_to_E_DIP_SOS to read rassi.h5 to get d0i(real,imag) dipoles and transition energies of spin-orbit coupled states 
-    - h5_to_DDM_CUB_from_trd1_rassi_via_NDO to read rasscf.h5 and rassi.h5 to get transition density matrices, associated NTOs and transition density $\rho_{0i}(\mathbf{r})$
+    - h5_to_TDM_CUB_from_trd1_rassi_via_NTO to read rasscf.h5 and rassi.h5 to get transition density matrices, associated NTOs and transition density $\rho_{0i}(\mathbf{r})$
     - do_charges_SFS{,\_pop}.py to read rasscf.h5 and rassi.h5 to get density difference matrices, associated NDOs and density difference $\Delta\rho_{0i}(\mathbf{r})$
-    - h5_to_TDM_CUB_from_trd1_rassi_via_NTO to read rasscf.h5 and rassi.h5 to get density difference matrices, associated NDOs and density difference $\Delta\rho_{0i}(\mathbf{r})$ 
+    - h5_to_DDM_CUB_from_trd1_rassi_via_NDO to read rasscf.h5 and rassi.h5 to get density difference matrices, associated NDOs and density difference $\Delta\rho_{0i}(\mathbf{r})$ 
       [computes charges and/or cube files for basins and integrated electron density in basins]
 ### Notebooks for future pedagogical use
 - fchk2NormalModes, contains Jupyter Notebook to obtain NMV from Hessian calculations, read and visualize them
