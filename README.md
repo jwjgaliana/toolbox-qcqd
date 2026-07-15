@@ -28,6 +28,7 @@ Most of the scripts are for extracting data from outputs of QCQD softwares (Gaus
 - [X] add molcas/h5 to natural transition (difference) orbitals and transition (difference) density 
 - [X] add interface with Multiwfn and charge density analysis 
 - [ ] add notebook for alignment of molecules and/or normal modes of vibrations [unpublished results, b234 PPE branch, [Thesis manuscript,HAL archive](https://theses.hal.science/tel-04680925/)]
+- [ ] generalize (and make a module of it) the re-ordering of atomic orbitals Molcas <--> Molden
 
 ## troubleshooting
 - Procrustes import in TOOLBOX.py might cause problems; try commenting it if errors regarding "UserDict" are raised.
