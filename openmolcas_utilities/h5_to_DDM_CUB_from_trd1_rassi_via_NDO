@@ -99,9 +99,14 @@ def write_cube(cubeData,filename,header=None):
                         z += 1
                     f.write("\n")
                     line += 1
-                for i in range(Nz % 6):
-                    f.write(str(cubeData[x,y,z])+"\t")
-                    z += 1
+                if Nz % 6 == 0:
+                    for i in range(6):
+                        f.write(str(cubeData[x,y,z])+"\t")
+                        z += 1
+                else:
+                    for i in range(Nz % 6):
+                        f.write(str(cubeData[x,y,z])+"\t")
+                        z += 1
                 f.write("\n")
     return
 
